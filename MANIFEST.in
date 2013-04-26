@@ -1,2 +1,2 @@
-include setup.py README.md MANIFEST.in
+include setup.py README.md MANIFEST.in requires.txt test-requires.txt
 global-exclude *~
