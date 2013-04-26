@@ -267,6 +267,16 @@ def save_ignore(filename, config, ignore):
     f.close()
 
 
+def _get(config, option, default=None):
+    try:
+        v = _get(config, option)
+        if v is None:
+            return default
+        return v
+    except ConfigParser.NoOptionError:
+        return default
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Utility updating requires.txt", add_help=True)
@@ -293,18 +303,18 @@ def main():
     config.readfp(open(args.file))
 
     db = venv_db()
-    req_types = config.get('requp', 'req_types')
+    req_types = _get(config, 'req_types')
     req_types = req_types and req_types.split(' ') or ['prod']
-    ignore = config.get('requp', 'ignore')
+    ignore = _get(config, 'ignore')
     ignore = ignore and {x.strip() for x in ignore.split(" ") if x.strip()} or set()
     if args.freeze:
         if args.is_inter:
             req_files = []
             for req_type in req_types:
-                filename = config.get('requp', req_type)
+                filename = _get(config, req_type)
                 assert filename, (
-                    'requirements filename is not specified for {}').format(
-                        req_type)
+                    'requirements filename is not specified for {}'
+                ).format(req_type)
                 req_files.append(open(filename, 'wb'))
             req_buffer = [[] for req in req_types]
             result = interactive_freeze(db, req_types, req_buffer, ignore)
@@ -322,7 +332,7 @@ def main():
         filenames = []
         req_files = []
         for req_type in req_types:
-            filename = config.get('requp', req_type)
+            filename = _get(config, req_type)
             assert filename, (
                 'requirements filename is '
                 'not specified for {}').format(req_type)
