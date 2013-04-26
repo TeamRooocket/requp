@@ -46,12 +46,8 @@ def venv_db():
                 lines.next().replace('Requires: ', '').split(', ')))
             db[name]['requires'] = requires
             for req in requires:
-                if req not in ('setuptools', 'distribute'):
-                    asd = db.setdefault(req, {
-                        'version': None,
-                        'requires': [],
-                        'refs': []})
-                    asd['refs'].append(name)
+                if req in db:
+                    db[req]['refs'].append(name)
         except StopIteration:
             break
     return db
@@ -82,7 +78,7 @@ def parse_req(line_tuple):
     return ReqLine(no, line, line_type, name, op, version)
 
 
-def print_freeze(db, ignore):
+def print_freeze(db, ignore, is_uncomment=False):
     """
     Simply prints all packages and comments those that are required
     by other packages.
@@ -101,11 +97,16 @@ def print_freeze(db, ignore):
         if name in ignore:
             continue
         if data['refs']:
-            print '# ' + data['line']
+            if is_uncomment:
+                print data['line']
+            else:
+                print '# ' + data['line']
             print '# required by: {}'.format(", ".join(data['refs']))
 
 
-def interactive_freeze(db, req_types, req_buffer, ignore, skip=None):
+def interactive_freeze(
+    db, req_types, req_buffer, ignore,
+        skip=None, is_uncomment=False):
     """
     This function aims to help categorize packages,
     when you initially create your requirement files.
@@ -115,7 +116,10 @@ def interactive_freeze(db, req_types, req_buffer, ignore, skip=None):
     _prt = ", ".join(["({}){}".format(
         i and i+1 or 'Enter', value) for i, value in enumerate(req_types)])
     prompt = '(i)gnore, {}> '.format(_prt)
-    prompt_ref = '(i)gnore, (Enter)pass, (u)ncomment and pass> '
+    if is_uncomment:
+        prompt_ref = '(i)gnore, (Enter)pass> '
+    else:
+        prompt_ref = '(i)gnore, (Enter)pass, (u)ncomment and pass> '
     req_sets = [set() for req in req_types]
     for name, data in db.iteritems():
         if name in ignore or name in skip:
@@ -157,13 +161,16 @@ def interactive_freeze(db, req_types, req_buffer, ignore, skip=None):
             if choice is None:
                 choice = 0
             while True:
-                print '# ' + data['line']
+                if is_uncomment:
+                    print data['line']
+                else:
+                    print '# ' + data['line']
                 print ("# required by: \033[92m{}\033[0m").format(
                     ", ".join(data['refs']))
                 print "this will be added to \033[92m{}\033[0m".format(
                     req_types[choice])
                 r = raw_input(prompt_ref).lower()
-                uncomment = False
+                uncomment = False or is_uncomment
                 if r.startswith('i'):
                     ignore.add(name)
                     break
@@ -206,6 +213,8 @@ def update_requirements(db, reqs, filenames, ignore):
             if line.type == 'text':
                 continue
             name, op, version = line.name, line.op, line.version
+            if name == 'pip':
+                continue
             if name in db:
                 mentioned.add(name)
                 if name in ignore:
@@ -269,7 +278,9 @@ def save_ignore(filename, config, ignore):
 
 def _get(config, option, default=None):
     try:
-        v = _get(config, option)
+        if config is None:
+            return default
+        v = config.get('requp', option)
         if v is None:
             return default
         return v
@@ -285,10 +296,10 @@ def main():
         '--config-file', '-c', default='.requp.cfg', dest='file',
         help='File containing requirements. Default: .requp.cfg',
         required=False)
-    parser.add_argument(
-        '--dry-run', '-n', default=False, dest='dryrun',
-        help='Run the command without actual changes',
-        required=False, action='store_true')
+    # parser.add_argument(
+    #     '--dry-run', '-n', default=False, dest='dryrun',
+    #     help='Run the command without actual changes',
+    #     required=False, action='store_true')
     parser.add_argument(
         '--freeze', '-f', default=False, dest='freeze',
         help='Print out requirements that are needed',
@@ -297,10 +308,18 @@ def main():
         '--interactive', '-i', default=False, dest='is_inter',
         help='Print out requirements that are needed',
         required=False, action='store_true')
+    parser.add_argument(
+        '--uncomment', '-u', default=False, dest='is_uncomment',
+        help='Uncomment packages required by other packages',
+        required=False, action='store_true')
     args = parser.parse_args()
 
     config = ConfigParser.ConfigParser()
-    config.readfp(open(args.file))
+    try:
+        config.readfp(open(args.file))
+    except IOError:
+        print ('There is no such file: {}'.format(args.file))
+        return
 
     db = venv_db()
     req_types = _get(config, 'req_types')
@@ -317,7 +336,9 @@ def main():
                 ).format(req_type)
                 req_files.append(open(filename, 'wb'))
             req_buffer = [[] for req in req_types]
-            result = interactive_freeze(db, req_types, req_buffer, ignore)
+            result = interactive_freeze(
+                db, req_types, req_buffer, ignore,
+                is_uncomment=args.is_uncomment)
             r = raw_input('Save changes (y/n)? ')
             if r.lower().startswith('y'):
                 ignore = result
@@ -326,7 +347,7 @@ def main():
                     req_files[num].close()
                 save_ignore(args.file, config, ignore)
         else:
-            print_freeze(db, ignore)
+            print_freeze(db, ignore, is_uncomment=args.is_uncomment)
     else:
         reqs = []
         filenames = []
@@ -346,7 +367,8 @@ def main():
         print 'Checking for new packages'
         print '=' * 40
         result = interactive_freeze(
-            db, req_types, req_buffer, ignore, skip=skip)
+            db, req_types, req_buffer, ignore, skip=skip,
+            is_uncomment=args.is_uncomment)
         r = raw_input('Save changes (y/n)? ')
         if r.lower().startswith('y'):
             ignore = result
